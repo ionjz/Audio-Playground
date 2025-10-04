@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Audio Analysis Playground</title>
+  <link rel="stylesheet" href="styles.css">
+  <meta name="description" content="Upload or record audio and preview analysis results.">
+</head>
+<body>
+  <header class="site-header">
+    <h1>Audio Analysis Playground</h1>
+    <p class="tagline">Import or record audio. Analyze now with mock results, connect an API later.</p>
+  </header>
+
+  <main class="container">
+    <section class="card" aria-labelledby="import-title">
+      <h2 id="import-title">Import audio</h2>
+      <div id="dropzone" class="dropzone" role="button" tabindex="0" aria-label="Drop audio file here or click to browse">
+        <div class="dz-instructions">
+          <strong>Drag & drop</strong> an audio file here
+          <span class="dz-sep">or</span>
+          <label for="file-input" class="browse-link">browse</label>
+        </div>
+        <input id="file-input" type="file" accept="audio/*" hidden>
+      </div>
+      <p class="hint">Supported: most common audio formats (mp3, wav, m4a, webm...).</p>
+    </section>
+
+    <section class="card" aria-labelledby="record-title">
+      <h2 id="record-title">Record from microphone</h2>
+      <div class="record-controls">
+        <button id="record-toggle" class="btn">Start recording</button>
+        <span id="recording-indicator" class="recording-indicator" aria-hidden="true">● Recording</span>
+        <span id="recording-hint" class="hint">Recording works on localhost or HTTPS only.</span>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="player-title">
+      <h2 id="player-title">Preview</h2>
+      <audio id="audio-player" controls preload="metadata" class="audio-player">
+        <track id="segments-track" kind="metadata" label="Segments">
+      </audio>
+      <div id="audio-meta" class="hint" aria-live="polite"></div>
+    </section>
+
+    <section class="card" aria-labelledby="analyze-title">
+      <h2 id="analyze-title">Analyze</h2>
+      <div class="analyze-controls">
+        <label class="input-row">
+          <span>Mode</span>
+          <select id="mode-select">
+            <option value="mock" selected>Mock (built-in)</option>
+            <option value="live">Live (call backend)</option>
+          </select>
+        </label>
+        <button id="analyze-btn" class="btn primary" disabled>Analyze audio</button>
+      </div>
+      <div id="status" class="status" role="status" aria-live="polite"></div>
+    </section>
+
+    <section class="card" aria-labelledby="results-title">
+      <h2 id="results-title">Results</h2>
+      <div id="results-summary" class="results-summary">No results yet.</div>
+      <ul id="segments-list" class="segments-list" aria-label="Detected segments"></ul>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>Note: This is a local prototype. The frontend calls <code>/api/analyze</code> on the Python backend.</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
