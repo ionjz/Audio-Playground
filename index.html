@@ -10,7 +10,7 @@
 <body>
   <header class="site-header">
     <h1>Audio Analysis Playground</h1>
-    <p class="tagline">Import or record audio. Analyze now with mock results, connect an API later.</p>
+    <p class="tagline">Import or record audio, then analyze via the Python backend.</p>
   </header>
 
   <main class="container">
@@ -47,14 +47,8 @@
     <section class="card" aria-labelledby="analyze-title">
       <h2 id="analyze-title">Analyze</h2>
       <div class="analyze-controls">
-        <label class="input-row">
-          <span>Mode</span>
-          <select id="mode-select">
-            <option value="mock" selected>Mock (built-in)</option>
-            <option value="live">Live (call backend)</option>
-          </select>
-        </label>
         <button id="analyze-btn" class="btn primary" disabled>Analyze audio</button>
+        <button id="emotions-btn" class="btn" disabled>Emotion scores</button>
       </div>
       <div id="status" class="status" role="status" aria-live="polite"></div>
     </section>
@@ -62,12 +56,13 @@
     <section class="card" aria-labelledby="results-title">
       <h2 id="results-title">Results</h2>
       <div id="results-summary" class="results-summary">No results yet.</div>
+      <ul id="emotions-list" class="segments-list" aria-label="Emotion scores"></ul>
       <ul id="segments-list" class="segments-list" aria-label="Detected segments"></ul>
     </section>
   </main>
 
   <footer class="site-footer">
-    <p>Note: This is a local prototype. The frontend calls <code>/api/analyze</code> on the Python backend.</p>
+    <p>Note: The frontend calls <code>/api/analyze</code> and shows top tone segments.</p>
   </footer>
 
   <script src="app.js"></script>

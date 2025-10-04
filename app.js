@@ -6,14 +6,16 @@
   const audio = document.getElementById('audio-player');
   const segmentsTrackEl = document.getElementById('segments-track');
   const analyzeBtn = document.getElementById('analyze-btn');
-  const modeSelect = document.getElementById('mode-select');
+  const emotionsBtn = document.getElementById('emotions-btn');
   const statusEl = document.getElementById('status');
   const resultsSummary = document.getElementById('results-summary');
   const segmentsList = document.getElementById('segments-list');
+  const emotionsList = document.getElementById('emotions-list');
   const recordToggle = document.getElementById('record-toggle');
   const recordingIndicator = document.getElementById('recording-indicator');
   const recordingHint = document.getElementById('recording-hint');
   const audioMeta = document.getElementById('audio-meta');
+  // phrase input removed; tone-only
 
   let currentBlob = null;
   let currentFileName = null;
@@ -51,6 +53,7 @@
     audioUrl = URL.createObjectURL(blob);
     audio.src = audioUrl;
     analyzeBtn.disabled = false;
+    emotionsBtn.disabled = false;
     resultsSummary.textContent = 'Ready. Click Analyze to run.';
     segmentsList.innerHTML = '';
     clearTrackCues();
@@ -149,25 +152,6 @@
     });
   }
 
-  async function mockAnalyze(blob) {
-    const duration = isFinite(audio.duration) ? audio.duration : null;
-    const size = blob.size;
-    const seed = (size % 13) / 13;
-    const risk = duration ? Math.min(1, (duration % 97) / 97) * 0.7 + seed * 0.3 : seed;
-    const extremist = risk > 0.6 ? true : risk < 0.35 ? false : null;
-
-    const dur = duration && isFinite(duration) ? duration : 60;
-    const num = Math.max(0, Math.round(risk * 3));
-    const segments = [];
-    for (let i = 0; i < num; i++) {
-      const start = Math.max(0, Math.round((dur / (num + 1)) * (i + 1) - 5));
-      const end = Math.min(dur, start + 8 + (i % 3));
-      segments.push({ start, end, label: 'flag', confidence: Math.min(1, risk * 0.8 + 0.1) });
-    }
-    await new Promise((r) => setTimeout(r, 700));
-    return { extremist, riskScore: risk, segments };
-  }
-
   async function liveAnalyze(blob) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 60000);
@@ -189,7 +173,7 @@
 
   function renderResults(result) {
     const extremist = result.extremist;
-    const score = result.riskScore;
+    const score = result.textScore ?? result.riskScore;
     const segments = Array.isArray(result.segments) ? result.segments : [];
 
     let summary = 'Extremist: ' + (extremist === true ? 'Yes' : extremist === false ? 'No' : 'Uncertain');
@@ -197,9 +181,11 @@
     resultsSummary.textContent = summary;
 
     segmentsList.innerHTML = '';
+    emotionsList.innerHTML = '';
     clearTrackCues();
 
-    if (segments.length === 0) {
+    const listToShow = segments;
+    if (listToShow.length === 0) {
       const li = document.createElement('li');
       li.textContent = 'No segments detected.';
       segmentsList.appendChild(li);
@@ -207,12 +193,13 @@
     }
 
     const track = segmentsTrackEl.track;
-    segments.forEach((s, idx) => {
+    listToShow.forEach((s, idx) => {
       const li = document.createElement('li');
       const btn = document.createElement('button');
       btn.className = 'segment-btn';
       btn.type = 'button';
-      btn.textContent = `${formatTime(s.start)} → ${formatTime(s.end)}${s.label ? ' · ' + s.label : ''}`;
+      const suffix = typeof s.textScore === 'number' ? ` · textScore ${(Math.round(s.textScore * 1000) / 1000).toFixed(3)}` : '';
+      btn.textContent = `${formatTime(s.start)} → ${formatTime(s.end)}${suffix}`;
       btn.setAttribute('aria-label', `Jump to segment ${idx + 1}`);
       btn.addEventListener('click', () => {
         audio.currentTime = Math.max(0, (s.start || 0) - 0.05);
@@ -220,17 +207,17 @@
       });
       li.appendChild(btn);
 
-      if (typeof s.confidence === 'number') {
+      if (s.text) {
         const meta = document.createElement('div');
         meta.className = 'segment-meta';
-        meta.textContent = `confidence ${(s.confidence * 100).toFixed(0)}%`;
+        meta.textContent = s.text;
         li.appendChild(meta);
       }
 
       segmentsList.appendChild(li);
 
       try {
-        const cue = new VTTCue(s.start || 0, s.end || (s.start || 0) + 1, s.label || `segment ${idx + 1}`);
+        const cue = new VTTCue(s.start || 0, s.end || (s.start || 0) + 1, (s.label || `segment ${idx + 1}`));
         track.addCue(cue);
       } catch (_) {}
     });
@@ -244,8 +231,7 @@
       resultsSummary.textContent = '';
       segmentsList.innerHTML = '';
       try {
-        const mode = modeSelect.value;
-        const result = mode === 'live' ? await liveAnalyze(currentBlob) : await mockAnalyze(currentBlob);
+        const result = await liveAnalyze(currentBlob);
         renderResults(result);
         setStatus('Done.', 'success');
       } catch (err) {
@@ -253,6 +239,44 @@
         setStatus('Analysis failed: ' + (err && err.message ? err.message : err), 'error');
       } finally {
         analyzeBtn.disabled = !currentBlob;
+      }
+    });
+
+    emotionsBtn.addEventListener('click', async () => {
+      if (!currentBlob) return;
+      emotionsBtn.disabled = true;
+      setStatus('Fetching emotion scores...', 'info');
+      emotionsList.innerHTML = '';
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 60000);
+        const form = new FormData();
+        form.append('audio', currentBlob, currentFileName || 'audio.webm');
+        const res = await fetch('/api/emotions', { method: 'POST', body: form, signal: controller.signal });
+        clearTimeout(timeout);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        const emotions = Array.isArray(data.emotions) ? data.emotions : [];
+        if (emotions.length === 0) {
+          const li = document.createElement('li');
+          li.textContent = 'No emotion scores available.';
+          emotionsList.appendChild(li);
+        } else {
+          emotions
+            .slice()
+            .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+            .forEach((e) => {
+              const li = document.createElement('li');
+              li.textContent = `${e.label}: ${(Math.round((e.score ?? 0) * 1000) / 1000).toFixed(3)}`;
+              emotionsList.appendChild(li);
+            });
+        }
+        setStatus('Done.', 'success');
+      } catch (err) {
+        console.error(err);
+        setStatus('Emotion scoring failed: ' + (err && err.message ? err.message : err), 'error');
+      } finally {
+        emotionsBtn.disabled = !currentBlob;
       }
     });
   }

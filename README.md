@@ -1,51 +1,149 @@
 # Audio Analysis Playground
 
-A minimal web app to import or record audio, preview, and run an analysis. Ships with a mock analyzer and a Python backend endpoint at `/api/analyze` you can replace with real logic.
+A minimal web app to import or record audio, preview, and analyze via a Python Whisper backend at `/api/analyze`.
 
-## Run locally (recommended)
-
-Start the Python backend (serves the frontend too):
+## Run backend + frontend
 
 ```bash
 cd "/Users/ivangvardeitsev/Computer Science/Projects/Junction2025"
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+# macOS: ensure ffmpeg is installed first:  brew install ffmpeg
 python server.py
 ```
 
-Open `http://127.0.0.1:8000`. Microphone access requires localhost or HTTPS.
+Open `http://127.0.0.1:8000`.
 
 ## Use
 
-- Click the card to select an audio file (or drag & drop)
-- Or click "Start recording" to capture via the microphone
-- Choose "Mock" or "Live" and click "Analyze audio"
-  - Mock: built-in deterministic sample results
-  - Live: posts `multipart/form-data` with field `audio` to `/api/analyze`
+- Select an audio file or record with the microphone
+- Click "Analyze audio"; the app uploads your audio to `/api/analyze` and shows top tone segments and per-emotion scores when available
 
-Results include a summary and a clickable list of segments. Clicking a segment jumps the player to that time.
+## Whisper integration
 
-## Backend API
+- The backend loads a Whisper model once at startup (`WHISPER_MODEL` env var; default `base`).
+- On upload, Whisper transcribes and returns segments; any segment containing the phrase is returned with its text and time span.
 
-- Endpoint: `POST /api/analyze`
-- Body: `multipart/form-data` with `audio` file field
-- Response shape (example):
+### Dependencies
+
+- `openai-whisper` (Python)
+- `ffmpeg` must be available on your PATH
+  - macOS: `brew install ffmpeg`
+  - Ubuntu: `sudo apt-get update && sudo apt-get install -y ffmpeg`
+
+### Environment
+
+- `WHISPER_MODEL` to choose model size (e.g. `tiny`, `base`, `small`, `medium`, `large`). Example:
+
+```bash
+WHISPER_MODEL=small python server.py
+```
+
+## API
+
+- `POST /api/analyze`
+  - Body: `multipart/form-data`
+    - `audio`: file (required)
+  - Response (tone + optional emotions):
 
 ```json
 {
-  "isExtremist": true,
-  "riskScore": 0.82,
+  "isExtremist": null,
+  "riskScore": 0.64,
   "segments": [
-    { "start": 12.5, "end": 18.2, "label": "flag", "confidence": 0.91 }
+    { "start": 12.3, "end": 13.8, "label": "angry", "toneScore": 0.81, "angerProb": 0.66, "text": "optional transcript snippet" }
+  ],
+  "emotions": [ { "label": "anger", "score": 0.62 } ]
+}
+```
+
+- `POST /api/analyze_tone`
+  - Body: `multipart/form-data`
+    - `audio`: file (required)
+  - Response:
+
+```json
+{
+  "isExtremist": false,
+  "riskScore": 0.37,
+  "segments": [
+    { "start": 3.5, "end": 5.0, "angerProb": 0.61, "toneScore": 0.58, "label": "angry" }
   ]
 }
 ```
 
-You can implement your real analysis in `server.py` inside the `/api/analyze` handler. The current implementation returns a deterministic mock based on the upload size.
+Notes: requires `ffmpeg`, `librosa`, `pydub`, `soundfile`, `torch`, and `transformers`. The emotion model runs on CPU by default unless CUDA is available.
 
-## Notes
+- `POST /api/emotions`
+  - Body: `multipart/form-data`
+    - `audio`: file (required)
+  - Response:
 
-- Tested in latest Chrome and Edge. Safari supports MediaRecorder in recent versions.
-- Recording requires localhost or HTTPS.
-- Most audio formats supported by the browser should work.
+```json
+{ "emotions": [ { "label": "anger", "score": 0.62 }, { "label": "sadness", "score": 0.03 } ] }
+```
+
+- `POST /api/phrase_search`
+  - Body: `multipart/form-data`
+    - `audio`: file (required)
+    - `phrase`: text (required)
+  - Response:
+
+```json
+{ "phrase": "low iq", "matches": [ { "start": 12.4, "end": 17.8, "text": "..." } ], "transcript": "..." }
+```
+
+## Extremism ML training
+
+Install extra deps (already in `requirements.txt`) and download NLTK data once:
+
+```bash
+cd "/Users/ivangvardeitsev/Computer Science/Projects/Junction2025"
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python - <<'PY'
+import nltk
+nltk.download('punkt', quiet=True)
+nltk.download('wordnet', quiet=True)
+nltk.download('averaged_perceptron_tagger_eng', quiet=True)
+PY
+```
+
+Prepare small lexicon files if you don't have them yet:
+
+```bash
+[ -f NRC-Emotion-Lexicon-Wordlevel-v0.92.txt ] || cat > NRC-Emotion-Lexicon-Wordlevel-v0.92.txt <<'TXT'
+hate	anger	1
+love	joy	1
+fear	fear	1
+kill	anger	1
+bad	negative	1
+good	positive	1
+TXT
+
+[ -f terribleWordsForHackathon.txt.txt ] || cat > terribleWordsForHackathon.txt.txt <<'TXT'
+hate
+kill
+enemy
+TXT
+
+[ -f bad_verbs.txt ] || cat > bad_verbs.txt <<'TXT'
+destroy
+eliminate
+crush
+TXT
+```
+
+Train and evaluate the RandomForest model, and optionally predict a sample:
+
+```bash
+source .venv/bin/activate
+python -m scripts.train_extremism --predict "I hate the ninja turtles"
+```
+
+Environment variables:
+
+- `NRC_LEXICON_PATH` to point to a custom NRC lexicon file
+- `SBERT_MODEL` to choose a Sentence-BERT model (default `all-MiniLM-L6-v2`)

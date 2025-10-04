@@ -1,0 +1,6 @@
+hate	anger	1
+love	joy	1
+fear	fear	1
+kill	anger	1
+bad	negative	1
+good	positive	1
