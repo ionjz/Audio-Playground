@@ -6,7 +6,7 @@
   const audio = document.getElementById('audio-player');
   const segmentsTrackEl = document.getElementById('segments-track');
   const analyzeBtn = document.getElementById('analyze-btn');
-  const phraseInput = document.getElementById('phrase-input');
+  const phraseInput = null;
   const statusEl = document.getElementById('status');
   const resultsSummary = document.getElementById('results-summary');
   const segmentsList = document.getElementById('segments-list');
@@ -15,6 +15,8 @@
   const recordingIndicator = document.getElementById('recording-indicator');
   const recordingHint = document.getElementById('recording-hint');
   const audioMeta = document.getElementById('audio-meta');
+  const fileNameEl = document.getElementById('file-name');
+  const themeToggle = document.getElementById('theme-toggle');
   // phrase input removed; tone-only
 
   let currentBlob = null;
@@ -54,6 +56,7 @@
     audio.src = audioUrl;
     analyzeBtn.disabled = false;
     resultsSummary.textContent = 'Ready. Click Analyze to run.';
+    if (fileNameEl) fileNameEl.textContent = `File: ${currentFileName}`;
     segmentsList.innerHTML = '';
     clearTrackCues();
     setStatus('');
@@ -153,7 +156,7 @@
 
   async function liveAnalyze(blob) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60000);
+    const timeout = setTimeout(() => controller.abort(), 100000);
     try {
       const form = new FormData();
       form.append('audio', blob, currentFileName || 'audio.webm');
@@ -225,27 +228,22 @@
   function initAnalyze() {
     analyzeBtn.addEventListener('click', async () => {
       if (!currentBlob) return;
-      const phrase = (phraseInput && phraseInput.value || '').trim();
-      if (!phrase) {
-        setStatus('Enter a phrase to search.', 'warn');
-        return;
-      }
       analyzeBtn.disabled = true;
-      setStatus('Searching phrase...', 'info');
+      setStatus('Analyzing (can take a few minutes for long audio)...', 'info');
       resultsSummary.textContent = '';
       segmentsList.innerHTML = '';
       try {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 60000);
+        const timeout = setTimeout(() => controller.abort(), 600000); // 10 minutes
         const form = new FormData();
         form.append('audio', currentBlob, currentFileName || 'audio.webm');
-        form.append('phrase', phrase);
         const res = await fetch('/api/phrase_search', { method: 'POST', body: form, signal: controller.signal });
         clearTimeout(timeout);
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
-        const segments = Array.isArray(data.segments) ? data.segments : (Array.isArray(data.matches) ? data.matches : []);
-        resultsSummary.textContent = `Matches for "${data.phrase || phrase}": ${segments.length}`;
+        const segments = Array.isArray(data.segments) ? data.segments : [];
+        const label = typeof data.isExtremist === 'number' ? data.isExtremist : (typeof data.isExtremist === 'boolean' ? (data.isExtremist ? 1 : 0) : null);
+        resultsSummary.textContent = `isExtremist: ${label !== null ? label : 'N/A'}`;
         renderMatches(segments);
         setStatus('Done.', 'success');
       } catch (err) {
@@ -305,7 +303,30 @@
     initRecording();
     initAnalyze();
     initAudioMeta();
+    initTheme();
   }
 
   window.addEventListener('DOMContentLoaded', init);
+  
+  function initTheme() {
+    const root = document.documentElement;
+    const body = document.body;
+    // restore previous
+    try {
+      const saved = localStorage.getItem('theme');
+      if (saved === 'day') {
+        root.classList.add('theme-day');
+        body.classList.add('theme-day');
+        if (themeToggle) themeToggle.textContent = 'Night';
+      }
+    } catch (_) {}
+    if (themeToggle) {
+      themeToggle.addEventListener('click', () => {
+        const isDay = root.classList.toggle('theme-day');
+        if (isDay) body.classList.add('theme-day'); else body.classList.remove('theme-day');
+        try { localStorage.setItem('theme', isDay ? 'day' : 'night'); } catch (_) {}
+        themeToggle.textContent = isDay ? 'Night' : 'Day';
+      });
+    }
+  }
 })();

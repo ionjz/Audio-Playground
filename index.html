@@ -4,6 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Audio Analysis Playground</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
   <meta name="description" content="Upload or record audio and preview analysis results.">
 </head>
@@ -11,6 +14,9 @@
   <header class="site-header">
     <h1>Audio Analysis Playground</h1>
     <p class="tagline">Import or record audio, then analyze via the Python backend.</p>
+    <div>
+      <button id="theme-toggle" class="btn theme-toggle" type="button" aria-label="Toggle theme">Night</button>
+    </div>
   </header>
 
   <main class="container">
@@ -24,6 +30,7 @@
         </div>
         <input id="file-input" type="file" accept="audio/*" hidden>
       </div>
+      <div id="file-name" class="file-name" aria-live="polite"></div>
       <p class="hint">Supported: most common audio formats (mp3, wav, m4a, webm...).</p>
     </section>
 
@@ -45,10 +52,9 @@
     </section>
 
     <section class="card" aria-labelledby="analyze-title">
-      <h2 id="analyze-title">Search phrase</h2>
+      <h2 id="analyze-title">Analyze</h2>
       <div class="analyze-controls">
-        <input id="phrase-input" type="text" class="text-input" placeholder="Enter phrase (e.g., low iq)" aria-label="Phrase to search">
-        <button id="analyze-btn" class="btn primary" disabled>Search phrase</button>
+        <button id="analyze-btn" class="btn primary" disabled>Analyze</button>
       </div>
       <div id="status" class="status" role="status" aria-live="polite"></div>
     </section>
