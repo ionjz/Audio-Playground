@@ -15,7 +15,6 @@ import soundfile as sf
 from pydub import AudioSegment
 import torch
 from transformers import pipeline
-from ml.model import load_model, predict_proba_extremism
 
 try:
   import whisper  # openai-whisper
@@ -30,15 +29,6 @@ app = Flask(
   static_url_path=''  # serve static assets from root: /index.html, /styles.css, /app.js
 )
 
-# Load trained extremism classifier (optional)
-EXTREMISM_MODEL_PATH = os.environ.get('EXTREMISM_MODEL', str(ROOT / 'models' / 'extremism_rf.pkl'))
-EXTREMISM_CLF = None
-EXTREMISM_SCALER = None
-try:
-  if os.path.exists(EXTREMISM_MODEL_PATH):
-    EXTREMISM_CLF, EXTREMISM_SCALER = load_model(EXTREMISM_MODEL_PATH)
-except Exception:
-  EXTREMISM_CLF, EXTREMISM_SCALER = None, None
 
 # Load Whisper model once at startup (if available)
 WHISPER_MODEL_NAME = os.environ.get('WHISPER_MODEL', 'base')
@@ -107,7 +97,6 @@ def health():
     'whisperLoaded': WHISPER_MODEL is not None,
     'model': WHISPER_MODEL_NAME,
     'emotionLoaded': EMOTION_PIPE is not None,
-    'extremismModelLoaded': EXTREMISM_CLF is not None,
   })
 
 
@@ -128,62 +117,7 @@ def analyze():
     uploaded.save(tmp_file)
     tmp.close()
 
-    # 1) Tone analysis (audio-based risk and segments)
-    try:
-      y, sr = read_audio_any(tmp_file, target_sr=TARGET_SR)
-    except FileNotFoundError as e:
-      return jsonify({ 'error': 'ffmpeg_not_found', 'detail': str(e) }), 500
-    except Exception as e:
-      return jsonify({ 'error': 'decode_failed', 'detail': str(e) }), 400
-
-    if y is None or len(y) == 0:
-      return jsonify({ 'error': 'Could not decode audio' }), 400
-
-    duration = len(y) / float(sr)
-    seg_feats = []
-    seg_times = []
-    for start, end in segment_bounds(duration, WINDOW_SEC, HOP_SEC):
-      feat = segment_paralinguistics(y, sr, start, end)
-      if feat:
-        seg_feats.append(feat)
-        seg_times.append((start, end))
-
-    tone_scores = []
-    all_segments = []
-    if seg_feats:
-      rms_all = np.array([s['rms_mean'] for s in seg_feats], dtype=float)
-      pitchstd_all = np.array([s['pitch_std'] for s in seg_feats], dtype=float)
-      centroid_all = np.array([s['centroid_mean'] for s in seg_feats], dtype=float)
-
-      for (start, end), feat in zip(seg_times, seg_feats):
-        seg_wav = slice_audio(y, sr, start, end)
-        probs = classify_emotion_segment(seg_wav, sr)
-        anger_prob = 0.0
-        for lab, p in probs.items():
-          if any(a in lab for a in ANGER_LABELS):
-            anger_prob = max(anger_prob, float(p))
-
-        tone_score = compute_segment_tone_score(
-          anger_prob=anger_prob,
-          rms_mean=feat['rms_mean'],
-          pitch_std=feat['pitch_std'],
-          centroid_mean=feat['centroid_mean'],
-          rms_all=rms_all,
-          pitchstd_all=pitchstd_all,
-          centroid_all=centroid_all,
-        )
-        tone_scores.append(tone_score)
-        all_segments.append({
-          'start': round(float(start), 2),
-          'end': round(float(end), 2),
-          'angerProb': round(float(anger_prob), 3),
-          'toneScore': round(float(tone_score), 3),
-          'label': 'angry' if anger_prob >= 0.5 else 'high-arousal',
-        })
-
-    tone_risk = robust_global_score(tone_scores, top_frac=0.30) if tone_scores else 0.0
-
-    # 2) Transcribe and use transcript segments for text-based scoring
+    # Transcribe and find phrase matches (legacy analyze behavior replaced by phrase search guidance)
     transcript_text = ''
     transcript_segments = []
     if WHISPER_MODEL is not None:
@@ -198,57 +132,12 @@ def analyze():
         # transcription failed, still return tone-only results
         pass
 
-    # Also compute whole-clip per-emotion scores (optional)
-    emotions = []
-    try:
-      if EMOTION_PIPE is not None:
-        # Use entire resampled clip as ndarray
-        outputs = EMOTION_PIPE(y.astype(np.float32), sampling_rate=sr)
-        # outputs: list of {'label','score'}
-        for d in (outputs or []):
-          label = str(d.get('label', '')).lower()
-          score = float(d.get('score', 0.0))
-          emotions.append({ 'label': label, 'score': round(score, 3) })
-    except Exception:
-      emotions = []
-
-    # 3) Text-based extremism prediction (global + per-transcript segment)
-    text_prob = None
-    text_label = None
-    if EXTREMISM_CLF is not None and EXTREMISM_SCALER is not None and transcript_text:
-      try:
-        text_prob = predict_proba_extremism(EXTREMISM_CLF, EXTREMISM_SCALER, transcript_text)
-        text_label = int((text_prob or 0.0) >= 0.5)
-      except Exception:
-        text_prob, text_label = None, None
-
-    # Per-segment text scoring over Whisper segments
-    text_segments = []
-    if EXTREMISM_CLF is not None and EXTREMISM_SCALER is not None and transcript_segments:
-      for seg in transcript_segments:
-        s_text = (seg.get('text') or '').strip()
-        if not s_text:
-          continue
-        try:
-          s_prob = predict_proba_extremism(EXTREMISM_CLF, EXTREMISM_SCALER, s_text)
-        except Exception:
-          s_prob = None
-        if isinstance(s_prob, float) and s_prob >= TEXT_SEGMENT_THRESHOLD:
-          text_segments.append({
-            'start': round(float(seg.get('start') or 0.0), 2),
-            'end': round(float(seg.get('end') or 0.0), 2),
-            'text': s_text,
-            'textScore': round(float(s_prob), 3)
-          })
-
     return jsonify({
-      'isExtremist': text_label,
-      'textScore': round(float(text_prob), 3) if isinstance(text_prob, float) else None,
-      # For backward compat, leave riskScore but set to text score as requested
-      'riskScore': round(float(text_prob), 3) if isinstance(text_prob, float) else None,
-      'segments': text_segments,
       'transcript': transcript_text,
-      'emotions': emotions
+      'segments': [
+        { 'start': float(s.get('start') or 0.0), 'end': float(s.get('end') or 0.0), 'text': s.get('text') or '' }
+        for s in (transcript_segments or [])
+      ]
     })
 
   finally:
@@ -537,7 +426,7 @@ def phrase_search():
     matches = find_timestamps(phrase_norm, transcript_segments)
     return jsonify({
       'phrase': phrase,
-      'matches': matches,
+      'segments': matches,
       'transcript': transcript_text
     })
   finally:

@@ -45,10 +45,10 @@
     </section>
 
     <section class="card" aria-labelledby="analyze-title">
-      <h2 id="analyze-title">Analyze</h2>
+      <h2 id="analyze-title">Search phrase</h2>
       <div class="analyze-controls">
-        <button id="analyze-btn" class="btn primary" disabled>Analyze audio</button>
-        <button id="emotions-btn" class="btn" disabled>Emotion scores</button>
+        <input id="phrase-input" type="text" class="text-input" placeholder="Enter phrase (e.g., low iq)" aria-label="Phrase to search">
+        <button id="analyze-btn" class="btn primary" disabled>Search phrase</button>
       </div>
       <div id="status" class="status" role="status" aria-live="polite"></div>
     </section>
@@ -56,13 +56,12 @@
     <section class="card" aria-labelledby="results-title">
       <h2 id="results-title">Results</h2>
       <div id="results-summary" class="results-summary">No results yet.</div>
-      <ul id="emotions-list" class="segments-list" aria-label="Emotion scores"></ul>
       <ul id="segments-list" class="segments-list" aria-label="Detected segments"></ul>
     </section>
   </main>
 
   <footer class="site-footer">
-    <p>Note: The frontend calls <code>/api/analyze</code> and shows top tone segments.</p>
+    <p>Note: The frontend calls <code>/api/phrase_search</code> and shows matched segments.</p>
   </footer>
 
   <script src="app.js"></script>

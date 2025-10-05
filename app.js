@@ -6,7 +6,7 @@
   const audio = document.getElementById('audio-player');
   const segmentsTrackEl = document.getElementById('segments-track');
   const analyzeBtn = document.getElementById('analyze-btn');
-  const emotionsBtn = document.getElementById('emotions-btn');
+  const phraseInput = document.getElementById('phrase-input');
   const statusEl = document.getElementById('status');
   const resultsSummary = document.getElementById('results-summary');
   const segmentsList = document.getElementById('segments-list');
@@ -53,7 +53,6 @@
     audioUrl = URL.createObjectURL(blob);
     audio.src = audioUrl;
     analyzeBtn.disabled = false;
-    emotionsBtn.disabled = false;
     resultsSummary.textContent = 'Ready. Click Analyze to run.';
     segmentsList.innerHTML = '';
     clearTrackCues();
@@ -226,58 +225,71 @@
   function initAnalyze() {
     analyzeBtn.addEventListener('click', async () => {
       if (!currentBlob) return;
+      const phrase = (phraseInput && phraseInput.value || '').trim();
+      if (!phrase) {
+        setStatus('Enter a phrase to search.', 'warn');
+        return;
+      }
       analyzeBtn.disabled = true;
-      setStatus('Analyzing...', 'info');
+      setStatus('Searching phrase...', 'info');
       resultsSummary.textContent = '';
       segmentsList.innerHTML = '';
-      try {
-        const result = await liveAnalyze(currentBlob);
-        renderResults(result);
-        setStatus('Done.', 'success');
-      } catch (err) {
-        console.error(err);
-        setStatus('Analysis failed: ' + (err && err.message ? err.message : err), 'error');
-      } finally {
-        analyzeBtn.disabled = !currentBlob;
-      }
-    });
-
-    emotionsBtn.addEventListener('click', async () => {
-      if (!currentBlob) return;
-      emotionsBtn.disabled = true;
-      setStatus('Fetching emotion scores...', 'info');
-      emotionsList.innerHTML = '';
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 60000);
         const form = new FormData();
         form.append('audio', currentBlob, currentFileName || 'audio.webm');
-        const res = await fetch('/api/emotions', { method: 'POST', body: form, signal: controller.signal });
+        form.append('phrase', phrase);
+        const res = await fetch('/api/phrase_search', { method: 'POST', body: form, signal: controller.signal });
         clearTimeout(timeout);
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
-        const emotions = Array.isArray(data.emotions) ? data.emotions : [];
-        if (emotions.length === 0) {
-          const li = document.createElement('li');
-          li.textContent = 'No emotion scores available.';
-          emotionsList.appendChild(li);
-        } else {
-          emotions
-            .slice()
-            .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
-            .forEach((e) => {
-              const li = document.createElement('li');
-              li.textContent = `${e.label}: ${(Math.round((e.score ?? 0) * 1000) / 1000).toFixed(3)}`;
-              emotionsList.appendChild(li);
-            });
-        }
+        const segments = Array.isArray(data.segments) ? data.segments : (Array.isArray(data.matches) ? data.matches : []);
+        resultsSummary.textContent = `Matches for "${data.phrase || phrase}": ${segments.length}`;
+        renderMatches(segments);
         setStatus('Done.', 'success');
       } catch (err) {
         console.error(err);
-        setStatus('Emotion scoring failed: ' + (err && err.message ? err.message : err), 'error');
+        setStatus('Phrase search failed: ' + (err && err.message ? err.message : err), 'error');
       } finally {
-        emotionsBtn.disabled = !currentBlob;
+        analyzeBtn.disabled = !currentBlob;
       }
+    });
+  }
+
+  function renderMatches(matches) {
+    const list = Array.isArray(matches) ? matches : [];
+    segmentsList.innerHTML = '';
+    clearTrackCues();
+    if (list.length === 0) {
+      const li = document.createElement('li');
+      li.textContent = 'No matching segments.';
+      segmentsList.appendChild(li);
+      return;
+    }
+    const track = segmentsTrackEl.track;
+    list.forEach((s, idx) => {
+      const li = document.createElement('li');
+      const btn = document.createElement('button');
+      btn.className = 'segment-btn';
+      btn.type = 'button';
+      btn.textContent = `${formatTime(s.start)} → ${formatTime(s.end)}`;
+      btn.addEventListener('click', () => {
+        audio.currentTime = Math.max(0, (s.start || 0) - 0.05);
+        audio.play().catch(() => {});
+      });
+      li.appendChild(btn);
+      if (s.text) {
+        const meta = document.createElement('div');
+        meta.className = 'segment-meta';
+        meta.textContent = s.text;
+        li.appendChild(meta);
+      }
+      segmentsList.appendChild(li);
+      try {
+        const cue = new VTTCue(s.start || 0, s.end || (s.start || 0) + 1, `match ${idx + 1}`);
+        track.addCue(cue);
+      } catch (_) {}
     });
   }
 
