@@ -1,6 +1,6 @@
 # Audio Analysis Playground
 
-Minimal app to upload/record audio, transcribe with Whisper, and return predicted extremist segments.
+Minimal app to upload/record audio, transcribe with Whisper, and return predicted extremist segments. Extensive AI was used to generate many parts of the codebase, especially boilerplate.
 
 ## Quick start
 
