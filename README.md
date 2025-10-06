@@ -7,7 +7,6 @@ Minimal app to upload/record audio, transcribe with Whisper, and return predicte
 Prereqs: Python 3.10+, ffmpeg on PATH (macOS: `brew install ffmpeg`).
 
 ```bash
-cd "/Users/ivangvardeitsev/Computer Science/Projects/Junction2025"
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
